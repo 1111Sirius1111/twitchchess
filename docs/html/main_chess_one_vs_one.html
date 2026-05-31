@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Twitch Chess (Simulated)</title>
+<link rel="stylesheet" href="../css/styles.css">
+<script src="../js/event-bus.js"></script>
+<script src="../js/tts.js"></script>
+<script src="../js/tts-base.js"></script>
+<script src="../js/tts-supertonic.js"></script>
+<script src="../js/tts-kokoro.js"></script>
+<script src="../js/chess.js"></script>
+<script src="../js/board.js"></script>
+<script src="../js/game.js"></script>
+<script src="../js/chat-log.js"></script>
+<script src="../js/chat-sim.js"></script>
+</head>
+<body>
+
+<!-- ── Setup ── -->
+<div id="setup-screen">
+    <h1>Twitch Chess <span style="color:#e07b20;font-size:14px;vertical-align:middle;">[Simulated]</span></h1>
+
+    <!-- TTS Backend -->
+    <div style="margin:12px 0;padding:12px;background:#1e1e22;border:1px solid #2e2e36;border-radius:8px;">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#888;margin-bottom:10px;">TTS Backend</div>
+
+        <select id="tts-backend-select" style="width:100%;background:#2a2a2e;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:8px;">
+            <option value="web">Web Speech API (browser built-in)</option>
+            <option value="kokoro">Kokoro — English · neural · ~86 MB</option>
+            <option value="supertonic">Supertonic — 31 languages · neural · ~400 MB</option>
+        </select>
+
+        <div id="firefox-warning" style="display:none;margin-bottom:8px;padding:8px 10px;background:#3a1a00;border:1px solid #e07b20;border-radius:6px;font-size:12px;color:#e07b20;">
+            ⚠ Firefox WebGPU implementation is slow (tested June 2026). Use Edge or Chrome for acceptable performance.
+        </div>
+
+        <div id="supertonic-settings" style="display:none;margin-bottom:8px;">
+            <select id="st-device" style="width:100%;background:#2a2a2e;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:6px;">
+                <option value="webgpu">WebGPU (GPU accelerated)</option>
+                <option value="wasm">WASM (single-threaded)</option>
+            </select>
+            <select id="st-lang" style="width:100%;background:#2a2a2e;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:6px;">
+                <option value="en">English</option>
+                <option value="de">German</option>
+                <option value="fr">French</option>
+                <option value="es">Spanish</option>
+                <option value="it">Italian</option>
+                <option value="pt">Portuguese</option>
+                <option value="nl">Dutch</option>
+                <option value="pl">Polish</option>
+                <option value="ru">Russian</option>
+                <option value="uk">Ukrainian</option>
+                <option value="sv">Swedish</option>
+                <option value="da">Danish</option>
+                <option value="fi">Finnish</option>
+                <option value="cs">Czech</option>
+                <option value="sk">Slovak</option>
+                <option value="ro">Romanian</option>
+                <option value="hu">Hungarian</option>
+                <option value="hr">Croatian</option>
+                <option value="sl">Slovenian</option>
+                <option value="bg">Bulgarian</option>
+                <option value="el">Greek</option>
+                <option value="tr">Turkish</option>
+                <option value="ar">Arabic</option>
+                <option value="hi">Hindi</option>
+                <option value="id">Indonesian</option>
+                <option value="vi">Vietnamese</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="et">Estonian</option>
+                <option value="lv">Latvian</option>
+                <option value="lt">Lithuanian</option>
+                <option value="na">Auto-detect</option>
+            </select>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <label style="font-size:12px;color:#aaa;white-space:nowrap;">Steps</label>
+                <input type="range" id="st-steps" min="1" max="12" step="1" value="8" style="flex:1;background:transparent;">
+                <span id="st-steps-val" style="font-size:13px;color:#fff;min-width:20px;">8</span>
+            </div>
+        </div>
+
+        <div id="kokoro-settings" style="display:none;margin-bottom:8px;">
+            <select id="kokoro-device" style="width:100%;background:#2a2a2e;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:6px;">
+                <option value="webgpu">WebGPU (fp32, ~326 MB)</option>
+                <option value="wasm">WASM (q8, ~86 MB)</option>
+            </select>
+        </div>
+
+        <div id="tts-load-row" style="display:none;margin-top:8px;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button id="btn-tts-load" style="padding:6px 14px;background:#9146ff;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;">⬇ Load model</button>
+                <span id="tts-load-status" style="font-size:12px;color:#888;"></span>
+            </div>
+            <div id="tts-dl-wrap" style="display:none;margin-top:8px;">
+                <div style="background:#333;border-radius:4px;height:6px;overflow:hidden;margin-bottom:4px;">
+                    <div id="tts-dl-bar" style="background:#9146ff;height:100%;width:0%;transition:width .2s;border-radius:4px;"></div>
+                </div>
+                <div id="tts-dl-file" style="font-size:11px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+            </div>
+        </div>
+    </div><!-- /tts-backend box -->
+
+    <div class="row">
+        <button class="btn-green"  id="start-btn" disabled onclick="startGame()">Start Game</button>
+        <button class="btn-orange" onclick="chatSim.fillDummies(game)">Fill</button>
+        <button onclick="game.clearPlayers()">Clear</button>
+    </div>
+
+    <div id="player-table-wrap">
+        <table id="player-table">
+            <thead>
+                <tr><th>#</th><th>Username</th><th>Color</th><th>Piece</th><th>Voice</th><th id="th-lang" style="display:none">Language</th></tr>
+            </thead>
+            <tbody id="player-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ── Game ── -->
+<div id="game-screen">
+    <div id="game-top">
+        <div id="board"></div>
+        <div id="right-panel">
+            <div id="game-status">White to move</div>
+            <div id="chat-log"></div>
+            <div id="sim-controls"></div>
+            <div id="game-controls">
+                <button class="btn-red" onclick="endGame()">End Game</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Promo modal -->
+<div id="promo-modal">
+    <div id="promo-box">
+        <h2>Promote pawn</h2>
+        <div id="promo-choices"></div>
+    </div>
+</div>
+
+<script>
+const isFirefox = navigator.userAgent.includes('Firefox');
+
+// ── Language options for Supertonic ───────────────────────────
+const SUPERTONIC_LANGS = [
+    ['en','English'],['de','German'],['fr','French'],['es','Spanish'],['it','Italian'],
+    ['pt','Portuguese'],['nl','Dutch'],['pl','Polish'],['ru','Russian'],['uk','Ukrainian'],
+    ['sv','Swedish'],['da','Danish'],['fi','Finnish'],['cs','Czech'],['sk','Slovak'],
+    ['ro','Romanian'],['hu','Hungarian'],['hr','Croatian'],['sl','Slovenian'],['bg','Bulgarian'],
+    ['el','Greek'],['tr','Turkish'],['ar','Arabic'],['hi','Hindi'],['id','Indonesian'],
+    ['vi','Vietnamese'],['ja','Japanese'],['ko','Korean'],['et','Estonian'],['lv','Latvian'],
+    ['lt','Lithuanian'],['na','Auto'],
+];
+
+// ── TTS backend management ─────────────────────────────────────
+let tts            = new TTS();
+let ttsBackendType = 'web';
+
+const TTS_FACTORIES = {
+    web: () => new TTS(),
+    kokoro: () => {
+        const t = new TtsKokoro();
+        t.device  = document.getElementById('kokoro-device').value;
+        t.onready = () => updateStartButton();
+        return t;
+    },
+    supertonic: () => {
+        const t = new TtsSupertonic();
+        t.device   = document.getElementById('st-device').value;
+        t.lang     = document.getElementById('st-lang').value;
+        t.steps    = parseInt(document.getElementById('st-steps').value);
+        t.onready  = () => updateStartButton();
+        return t;
+    },
+};
+
+document.getElementById('tts-backend-select').addEventListener('change', e => {
+    tts.stop?.();
+    ttsBackendType = e.target.value;
+    tts = TTS_FACTORIES[ttsBackendType]();
+    game.setTts(tts);
+    chatSim.setTts(tts);
+    localStorage.setItem('tts-backend', ttsBackendType);
+    document.getElementById('kokoro-settings').style.display    = ttsBackendType === 'kokoro' ? '' : 'none';
+    document.getElementById('supertonic-settings').style.display = ttsBackendType === 'supertonic' ? '' : 'none';
+    document.getElementById('tts-load-row').style.display        = ttsBackendType !== 'web' ? '' : 'none';
+    document.getElementById('firefox-warning').style.display     = ttsBackendType === 'supertonic' && isFirefox ? '' : 'none';
+    document.getElementById('tts-load-status').textContent       = '';
+    document.getElementById('th-lang').style.display             = ttsBackendType === 'supertonic' ? '' : 'none';
+    renderPlayerList();
+});
+
+document.getElementById('kokoro-device').addEventListener('change', e => {
+    if (ttsBackendType === 'kokoro') { tts.device = e.target.value; tts._ready = false; tts._loading = null; updateStartButton(); }
+});
+
+document.getElementById('st-device').addEventListener('change', e => {
+    if (ttsBackendType === 'supertonic') { tts.device = e.target.value; tts._ready = false; tts._loading = null; updateStartButton(); }
+});
+document.getElementById('st-lang').addEventListener('change', e => {
+    if (ttsBackendType === 'supertonic') tts.lang = e.target.value;
+});
+document.getElementById('st-steps').addEventListener('input', e => {
+    document.getElementById('st-steps-val').textContent = e.target.value;
+    if (ttsBackendType === 'supertonic') tts.steps = parseInt(e.target.value);
+});
+
+document.getElementById('btn-tts-load').addEventListener('click', async () => {
+    const statusEl = document.getElementById('tts-load-status');
+    const barEl    = document.getElementById('tts-dl-bar');
+    const fileEl   = document.getElementById('tts-dl-file');
+    const wrap     = document.getElementById('tts-dl-wrap');
+
+    wrap.style.display   = 'block';
+    barEl.style.width    = '0%';
+    statusEl.textContent = 'Loading…';
+
+    const dlFiles = {};
+    try { await tts.preload((prog) => {
+        if (prog.status === 'progress' || prog.status === 'downloading') {
+            dlFiles[prog.file] = { loaded: prog.loaded ?? 0, total: prog.total ?? 0 };
+            const tl  = Object.values(dlFiles).reduce((s, f) => s + f.loaded, 0);
+            const tt  = Object.values(dlFiles).reduce((s, f) => s + f.total,  0);
+            const pct = tt > 0 ? Math.round(tl / tt * 100) : Math.round(prog.progress ?? 0);
+            barEl.style.width    = pct + '%';
+            statusEl.textContent = `${pct}%  (${fmtBytes(tl)} / ${fmtBytes(tt)})`;
+            fileEl.textContent   = prog.file ?? '';
+        } else if (prog.status === 'done') {
+            if (dlFiles[prog.file]) dlFiles[prog.file].loaded = dlFiles[prog.file].total;
+            fileEl.textContent = `✓ ${prog.file ?? 'file'}`;
+        } else if (prog.status === 'gen-step') {
+            statusEl.textContent = `Denoising ${prog.step}/${prog.total}…`;
+            barEl.style.width    = Math.round(prog.step / prog.total * 100) + '%';
+        }
+    });
+        barEl.style.width    = '100%';
+        statusEl.textContent = '✓ Ready';
+        updateStartButton();
+    } catch (err) {
+        barEl.style.width    = '0%';
+        statusEl.textContent = `⚠ ${err.message}`;
+        statusEl.style.color = '#e07b20';
+        updateStartButton();
+    }
+});
+
+function fmtBytes(b) {
+    if (!b) return '?';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(1) + ' MB';
+}
+
+const game        = new Game(tts);
+const board       = new ChessBoard();
+const chatLog     = new ChatLog();
+const chatSim     = new ChatSim(tts);
+
+board.mount(
+    document.getElementById('board'),
+    document.getElementById('game-status'),
+    document.getElementById('promo-modal')
+);
+game.setBoard(board);
+chatLog.mount(document.getElementById('chat-log'));
+chatSim.mount(document.getElementById('sim-controls'));
+
+// ── Setup screen ───────────────────────────────────────────────
+const PIECE_ORDER = ['r','n','b','q','k','b','n','r','p','p','p','p','p','p','p','p'];
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderPlayerList() {
+    const players     = game.players;
+    const tbody       = document.getElementById('player-body');
+    tbody.innerHTML   = '';
+    const colorCount  = { white: 0, black: 0 };
+
+    players.forEach((p, i) => {
+        const pieceType = PIECE_ORDER[colorCount[p.color]++] || 'p';
+        const tr        = document.createElement('tr');
+        tr.innerHTML    = `
+            <td>${i + 1}</td>
+            <td>${escHtml(p.username)}</td>
+            <td><span class="badge badge-${p.color}">${p.color}</span></td>
+            <td></td>
+            <td></td>
+            <td style="display:${ttsBackendType === 'supertonic' ? '' : 'none'}"></td>
+        `;
+        tr.cells[1].style.color = p.chatColor;
+        tr.cells[3].appendChild(pieceImg(p.color, pieceType, 24));
+
+        const voiceSel = document.createElement('select');
+        voiceSel.className = 'voice-select';
+        tts.supportedVoices.forEach(({ voice, index }) => {
+            const opt       = document.createElement('option');
+            opt.value       = index;
+            opt.textContent = voice.name;
+            opt.selected    = index === p.voiceIndex;
+            voiceSel.appendChild(opt);
+        });
+        voiceSel.onchange = () => { game.players[i].voiceIndex = parseInt(voiceSel.value); };
+        tr.cells[4].appendChild(voiceSel);
+
+        if (ttsBackendType === 'supertonic') {
+            const langSel = document.createElement('select');
+            langSel.className = 'voice-select';
+            SUPERTONIC_LANGS.forEach(([code, label]) => {
+                const opt       = document.createElement('option');
+                opt.value       = code;
+                opt.textContent = label;
+                opt.selected    = code === (p.lang ?? 'en');
+                langSel.appendChild(opt);
+            });
+            langSel.onchange = () => { game.players[i].lang = langSel.value; };
+            tr.cells[5].appendChild(langSel);
+        }
+
+        tbody.appendChild(tr);
+    });
+
+    updateStartButton();
+}
+
+function updateStartButton() {
+    const btn          = document.getElementById('start-btn');
+    const hasPlayers   = game.players.length > 0;
+    const modelPending = (ttsBackendType === 'supertonic' || ttsBackendType === 'kokoro') && !tts._ready;
+
+    btn.disabled = !hasPlayers || modelPending;
+
+    if (modelPending) {
+        btn.style.background = '#e07b20';
+        btn.title = 'Load the model first (click ⬇ Load model)';
+    } else {
+        btn.style.background = '';
+        btn.title = '';
+    }
+}
+
+bus.on('player:joined',   () => renderPlayerList());
+bus.on('player:updated',  () => renderPlayerList());
+bus.on('players:cleared', () => renderPlayerList());
+speechSynthesis.onvoiceschanged = () => { if (ttsBackendType === 'web') renderPlayerList(); };
+
+// Restore backend selection from previous session
+const _savedBackend = localStorage.getItem('tts-backend');
+if (_savedBackend && TTS_FACTORIES[_savedBackend]) {
+    document.getElementById('tts-backend-select').value = _savedBackend;
+    document.getElementById('tts-backend-select').dispatchEvent(new Event('change'));
+}
+
+chatSim.fillDummies(game);
+
+// ── Game screen transitions ────────────────────────────────────
+function startGame() {
+    game.start();
+    document.getElementById('setup-screen').style.display = 'none';
+    document.getElementById('game-screen').style.display  = 'flex';
+}
+
+function endGame() {
+    game.end();
+    document.getElementById('game-screen').style.display  = 'none';
+    document.getElementById('setup-screen').style.display = 'block';
+    renderPlayerList();
+}
+
+</script>
+</body>
+</html>

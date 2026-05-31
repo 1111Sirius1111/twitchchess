@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chess Test</title>
+<script src="../js/chess.js"></script>
+<style>
+    body { font-family: Arial, sans-serif; background: #18181b; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    h1 { margin-bottom: 10px; }
+    #status { margin-bottom: 12px; font-size: 18px; font-weight: bold; min-height: 28px; }
+    #board { display: grid; grid-template-columns: repeat(8, 72px); grid-template-rows: repeat(8, 72px); border: 2px solid #555; }
+    .cell {
+        width: 72px; height: 72px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; user-select: none; position: relative;
+    }
+    .cell img { width: 58px; height: 58px; pointer-events: none; }
+    .light { background: #f0d9b5; }
+    .dark  { background: #b58863; }
+    .selected  { background: #f6f669 !important; }
+    .legal     { background: #cdd16e !important; }
+    .last-move { background: #aaa23a !important; }
+    .check-king { background: #e05 !important; }
+    .coords { position: absolute; font-size: 10px; color: rgba(0,0,0,0.4); }
+    .coords.file { bottom: 2px; right: 3px; }
+    .coords.rank { top: 2px; left: 3px; }
+    #controls { margin-top: 14px; display: flex; gap: 10px; }
+    button { padding: 8px 16px; font-size: 14px; cursor: pointer; border: none; border-radius: 6px; background: #9146ff; color: white; }
+
+    #promo-modal {
+        display: none; position: fixed; inset: 0;
+        background: rgba(0,0,0,0.7); align-items: center; justify-content: center; z-index: 10;
+    }
+    #promo-modal.show { display: flex; }
+    #promo-box { background: #2a2a2e; border-radius: 10px; padding: 24px; text-align: center; }
+    #promo-box h2 { margin: 0 0 16px; }
+    #promo-box button { background: none; padding: 8px 12px; border: 2px solid #555; border-radius: 6px; margin: 4px; }
+    #promo-box button img { width: 56px; height: 56px; display: block; }
+    #promo-box button:hover { background: #444; }
+</style>
+</head>
+<body>
+<h1>Chess Test</h1>
+<div id="status">White to move</div>
+<div id="board"></div>
+<div id="controls">
+    <button onclick="newGame()">New Game</button>
+</div>
+
+<div id="promo-modal">
+    <div id="promo-box">
+        <h2>Promote pawn</h2>
+        <div id="promo-choices"></div>
+    </div>
+</div>
+
+<script>
+const PIECE_IMGS = {
+    white: {
+        k: 'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
+        q: 'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
+        r: 'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
+        b: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
+        n: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
+        p: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
+    },
+    black: {
+        k: 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
+        q: 'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
+        r: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg',
+        b: 'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
+        n: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
+        p: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg',
+    },
+};
+
+function pieceImg(color, type) {
+    const img = document.createElement('img');
+    img.src = PIECE_IMGS[color][type];
+    img.draggable = false;
+    return img;
+}
+
+const FILES = 'abcdefgh';
+
+let game = new Chess();
+let selected = null;
+let legalTargets = [];
+let pendingPromo = null;
+
+function newGame() {
+    game = new Chess();
+    selected = null;
+    legalTargets = [];
+    render();
+}
+
+function render() {
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+    const bd = game.getBoard();
+    const lm = game.lastMove;
+    const kingPos = findKingInCheck();
+
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const cell = document.createElement('div');
+            const isLight = (r + c) % 2 === 0;
+            cell.className = 'cell ' + (isLight ? 'light' : 'dark');
+
+            const isSelected = selected && selected[0] === r && selected[1] === c;
+            const isLegal = legalTargets.some(([lr,lc]) => lr===r && lc===c);
+            const isLastMove = lm && ((lm.fr===r && lm.fc===c) || (lm.tr===r && lm.tc===c));
+            const isCheckKing = kingPos && kingPos[0]===r && kingPos[1]===c;
+
+            if (isCheckKing)  cell.classList.add('check-king');
+            else if (isSelected)  cell.classList.add('selected');
+            else if (isLastMove)  cell.classList.add('last-move');
+            if (isLegal) cell.classList.add('legal');
+
+            const p = bd[r][c];
+            if (p) cell.appendChild(pieceImg(p.color, p.type));
+
+            if (c === 0) {
+                const rank = document.createElement('span');
+                rank.className = 'coords rank';
+                rank.textContent = 8 - r;
+                cell.appendChild(rank);
+            }
+            if (r === 7) {
+                const file = document.createElement('span');
+                file.className = 'coords file';
+                file.textContent = FILES[c];
+                cell.appendChild(file);
+            }
+
+            cell.addEventListener('click', () => onCellClick(r, c));
+            board.appendChild(cell);
+        }
+    }
+
+    const statusEl = document.getElementById('status');
+    if (game.status === 'checkmate') {
+        statusEl.textContent = `Checkmate — ${game.winner} wins!`;
+    } else if (game.status === 'stalemate') {
+        statusEl.textContent = 'Stalemate — draw!';
+    } else if (game.status === 'check') {
+        statusEl.textContent = `${cap(game.turn)} to move — CHECK`;
+    } else {
+        statusEl.textContent = `${cap(game.turn)} to move`;
+    }
+}
+
+function findKingInCheck() {
+    if (game.status !== 'check' && game.status !== 'checkmate') return null;
+    const bd = game.getBoard();
+    for (let r = 0; r < 8; r++)
+        for (let c = 0; c < 8; c++)
+            if (bd[r][c]?.type === 'k' && bd[r][c]?.color === game.turn)
+                return [r, c];
+    return null;
+}
+
+function cap(s) { return s[0].toUpperCase() + s.slice(1); }
+
+function onCellClick(r, c) {
+    if (game.status === 'checkmate' || game.status === 'stalemate') return;
+
+    if (selected) {
+        const [fr, fc] = selected;
+        if (legalTargets.some(([lr,lc]) => lr===r && lc===c)) {
+            const p = game.getPiece(fr, fc);
+            const isPromo = p?.type === 'p' && (r === 0 || r === 7);
+            if (isPromo) {
+                pendingPromo = {fr, fc, tr: r, tc: c};
+                showPromoModal(p.color);
+                return;
+            }
+            game.move(fr, fc, r, c);
+            selected = null;
+            legalTargets = [];
+            render();
+            return;
+        }
+    }
+
+    const p = game.getPiece(r, c);
+    if (p && p.color === game.turn) {
+        selected = [r, c];
+        legalTargets = game.getLegalMoves(r, c);
+    } else {
+        selected = null;
+        legalTargets = [];
+    }
+    render();
+}
+
+function showPromoModal(color) {
+    const modal = document.getElementById('promo-modal');
+    const choices = document.getElementById('promo-choices');
+    choices.innerHTML = '';
+    for (const type of ['q','r','b','n']) {
+        const btn = document.createElement('button');
+        btn.appendChild(pieceImg(color, type));
+        btn.title = {q:'Queen',r:'Rook',b:'Bishop',n:'Knight'}[type];
+        btn.onclick = () => {
+            const {fr, fc, tr, tc} = pendingPromo;
+            pendingPromo = null;
+            modal.classList.remove('show');
+            game.move(fr, fc, tr, tc, type);
+            selected = null;
+            legalTargets = [];
+            render();
+        };
+        choices.appendChild(btn);
+    }
+    modal.classList.add('show');
+}
+
+render();
+</script>
+</body>
+</html>

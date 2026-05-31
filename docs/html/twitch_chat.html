@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Twitch Chat Monitor</title>
+<script src="../js/twitch_chat.js"></script>
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        max-width: 1000px;
+        margin: 20px auto;
+        padding: 20px;
+        background: #18181b;
+        color: white;
+    }
+
+    h1 {
+        margin-bottom: 20px;
+    }
+
+    .controls {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    input {
+        flex: 1;
+        padding: 10px;
+        font-size: 16px;
+        border: none;
+        border-radius: 6px;
+    }
+
+    button {
+        padding: 10px 16px;
+        font-size: 16px;
+        cursor: pointer;
+        border: none;
+        border-radius: 6px;
+    }
+
+    #connectBtn {
+        background: #9146ff;
+        color: white;
+    }
+
+    #disconnectBtn {
+        background: #d9534f;
+        color: white;
+    }
+
+    #status {
+        margin-bottom: 15px;
+        font-weight: bold;
+    }
+
+    #chat {
+        height: 600px;
+        overflow-y: auto;
+        border: 1px solid #333;
+        padding: 10px;
+        background: #0e0e10;
+        border-radius: 6px;
+    }
+
+    .message {
+        padding: 4px 0;
+        border-bottom: 1px solid #222;
+        word-wrap: break-word;
+    }
+
+    .username {
+        font-weight: bold;
+    }
+
+    .system {
+        color: #aaa;
+        font-style: italic;
+    }
+</style>
+</head>
+<body>
+
+<h1>Twitch Chat Monitor</h1>
+
+<div class="controls">
+    <input
+        id="channelInput"
+        type="text"
+        placeholder="Enter channel name (e.g. xqc)"
+    >
+
+    <button id="connectBtn">Connect</button>
+    <button id="disconnectBtn">Disconnect</button>
+</div>
+
+<div id="status">Not connected</div>
+
+<div id="chat"></div>
+
+<script>
+const chat = document.getElementById("chat");
+const statusEl = document.getElementById("status");
+const channelInput = document.getElementById("channelInput");
+
+const twitchChat = new TwitchChat();
+
+function addSystemMessage(text) {
+    const div = document.createElement("div");
+    div.className = "message system";
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function addChatMessage(username, text, color) {
+    const div = document.createElement("div");
+    div.className = "message";
+
+    const userSpan = document.createElement("span");
+    userSpan.className = "username";
+    userSpan.textContent = username + ": ";
+    userSpan.style.color = color || "#9146ff";
+
+    const msgSpan = document.createElement("span");
+    msgSpan.textContent = text;
+
+    div.appendChild(userSpan);
+    div.appendChild(msgSpan);
+
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+twitchChat
+    .on("connected", (channel) => {
+        statusEl.textContent = `Connected to #${channel}`;
+        addSystemMessage(`Connected to #${channel}`);
+    })
+    .on("disconnected", () => {
+        statusEl.textContent = "Disconnected";
+        addSystemMessage("Disconnected");
+    })
+    .on("error", (err) => {
+        statusEl.textContent = "Connection error";
+        addSystemMessage(err.message);
+    })
+    .on("message", ({ username, text, color }) => {
+        addChatMessage(username, text, color);
+    });
+
+function connect() {
+    const channel = channelInput.value.trim();
+    if (!channel) { alert("Enter a channel name."); return; }
+    chat.innerHTML = "";
+    statusEl.textContent = `Connecting to #${channel}...`;
+    twitchChat.connect(channel);
+}
+
+document.getElementById("connectBtn").addEventListener("click", connect);
+document.getElementById("disconnectBtn").addEventListener("click", () => twitchChat.disconnect());
+channelInput.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+</script>
+
+</body>
+</html>
