@@ -15,7 +15,7 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    os.chdir(os.path.join(os.path.dirname(__file__), "website"))
+    os.chdir(os.path.join(os.path.dirname(__file__), "docs"))
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     server = HTTPServer(("", port), NoCacheHandler)
     print(f"Serving on http://0.0.0.0:{port}  (no-cache)")

@@ -268,7 +268,7 @@ function makeSlot(workerPath, isPrimary) {
 
 const pools = {
     kokoro:     Array.from({ length: NUM_SLOTS }, (_, i) => makeSlot('kokoro', i === 0)),
-    supertonic: Array.from({ length: NUM_SLOTS }, (_, i) => makeSlot('./supertonic-worker.js', i === 0)),
+    supertonic: Array.from({ length: NUM_SLOTS }, (_, i) => makeSlot('../js/supertonic-worker.js', i === 0)),
 };
 
 function activePool() { return pools[engineSelect.value]; }

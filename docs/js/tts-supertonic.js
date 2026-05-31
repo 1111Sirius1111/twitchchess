@@ -30,7 +30,7 @@ const SUPERTONIC_VOICES = [
 
 class TtsSupertonic {
     constructor() {
-        this._worker     = new Worker('./supertonic-worker.js', { type: 'module' });
+        this._worker     = new Worker('../js/supertonic-worker.js', { type: 'module' });
         this._worker.onmessage = ({ data }) => this._onMsg(data);
         this._ready      = false;
         this._loading    = null;
