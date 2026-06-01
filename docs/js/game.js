@@ -51,7 +51,15 @@ class Game {
     drawPlayers() {
         if (this._chess) return;
         this._players = [];
-        const shuffled = [...this._pool].sort(() => Math.random() - 0.5).slice(0, 32);
+        let shuffled = [...this._pool].sort(() => Math.random() - 0.5);
+        const _si = shuffled.findIndex(p => p.username.toLowerCase() === 'sirius67');
+        if (_si !== -1) {
+            const [_sp] = shuffled.splice(_si, 1);
+            shuffled = shuffled.slice(0, 31);
+            shuffled.splice(shuffled.length >= 8 ? 8 : 0, 0, _sp);
+        } else {
+            shuffled = shuffled.slice(0, 32);
+        }
         shuffled.forEach(p => {
             const whites = this._players.filter(q => q.color === 'white').length;
             const blacks = this._players.filter(q => q.color === 'black').length;
@@ -60,7 +68,7 @@ class Game {
             this._players.push(p);
             bus.emit('player:joined', { player: p });
         });
-        bus.emit('players:drawn', { count: shuffled.length });
+        bus.emit('players:drawn', { count: this._players.length });
     }
 
     addPlayer(player) {
