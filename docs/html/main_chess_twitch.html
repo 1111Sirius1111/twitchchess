@@ -36,9 +36,7 @@
             <option value="supertonic">Supertonic — 31 languages · neural · ~400 MB</option>
         </select>
 
-        <div id="firefox-warning" style="display:none;margin-bottom:8px;padding:8px 10px;background:#3a1a00;border:1px solid #e07b20;border-radius:6px;font-size:12px;color:#e07b20;">
-            ⚠ Firefox WebGPU implementation is slow (tested June 2026). Use Edge or Chrome for acceptable performance.
-        </div>
+        <div id="firefox-warning" style="display:none;margin-bottom:8px;padding:8px 10px;background:#3a1a00;border:1px solid #e07b20;border-radius:6px;font-size:12px;color:#e07b20;"></div>
 
         <div id="supertonic-settings" style="display:none;margin-bottom:8px;">
             <select id="st-device" style="width:100%;background:#2a2a2e;color:#eee;border:1px solid #444;border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:6px;">
@@ -204,7 +202,15 @@ document.getElementById('tts-backend-select').addEventListener('change', e => {
     document.getElementById('kokoro-settings').style.display    = ttsBackendType === 'kokoro' ? '' : 'none';
     document.getElementById('supertonic-settings').style.display = ttsBackendType === 'supertonic' ? '' : 'none';
     document.getElementById('tts-load-row').style.display        = ttsBackendType !== 'web' ? '' : 'none';
-    document.getElementById('firefox-warning').style.display     = ttsBackendType === 'supertonic' && isFirefox ? '' : 'none';
+    const _ffWarn = document.getElementById('firefox-warning');
+    if (isFirefox && (ttsBackendType === 'kokoro' || ttsBackendType === 'supertonic')) {
+        _ffWarn.textContent = ttsBackendType === 'kokoro'
+            ? '⚠ Kokoro is broken in Firefox (tested June 2026). Use Edge or Chrome.'
+            : '⚠ Firefox WebGPU implementation is slow (tested June 2026). Use Edge or Chrome for acceptable performance.';
+        _ffWarn.style.display = '';
+    } else {
+        _ffWarn.style.display = 'none';
+    }
     document.getElementById('tts-load-status').textContent       = '';
     document.getElementById('th-lang').style.display             = ttsBackendType === 'supertonic' ? '' : 'none';
     renderCmdRef();
