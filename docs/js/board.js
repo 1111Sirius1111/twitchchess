@@ -113,7 +113,9 @@ class ChessBoard {
     _renderStateless(color, type) {
         const wrap     = document.createElement('div');
         wrap.className = 'piece-symbol';
-        wrap.appendChild(pieceImg(color, type));
+        const inner     = document.createElement('div');
+        inner.className = 'piece-inner';
+        inner.appendChild(pieceImg(color, type));
 
         const coords = EYE_COORDS[type];
         if (coords) {
@@ -123,9 +125,10 @@ class ChessBoard {
                 eye.style.left = coords[side].x + '%';
                 eye.style.top  = coords[side].y + '%';
                 eye.innerHTML  = EYE_SVG;
-                wrap.appendChild(eye);
+                inner.appendChild(eye);
             }
         }
+        wrap.appendChild(inner);
         return wrap;
     }
 

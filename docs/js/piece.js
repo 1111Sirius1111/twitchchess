@@ -18,7 +18,15 @@ const PIECE_IMGS = {
 };
 
 // Eye coordinates (% of piece-symbol dimensions). Paste output from eye-adjustment tool here.
-const EYE_COORDS = {};
+const EYE_COORDS = {
+  "k": { "left": { "x": 35, "y": 50 }, "right": { "x": 67, "y": 50 } },
+  "q": { "left": { "x": 32, "y": 21.6 }, "right": { "x": 68, "y": 21.6 } },
+  "r": { "left": { "x": 45, "y": 49 }, "right": { "x": 56,   "y": 49 } },
+  "b": { "left": { "x": 42, "y": 35 }, "right": { "x": 58, "y": 35 } },
+  "n": { "left": { "x": 34, "y": 36 }, "right": { "x": 46, "y": 36 } },
+  "p": { "left": { "x": 43.5, "y": 45 }, "right": { "x": 56.5, "y": 45 } }
+};
+
 
 const EYE_SVG = '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg"><circle cx="18" cy="18" r="16" fill="white" stroke="#333" stroke-width="1.5"/><circle cx="21" cy="20" r="7" fill="#222"/><circle cx="24" cy="16" r="3" fill="white"/></svg>';
 
@@ -88,10 +96,15 @@ class Piece {
         const wrap     = document.createElement('div');
         wrap.className = 'piece-symbol';
 
+        // .piece-inner is what gets scaled on TTS — img and eyes are its children
+        // so they move together without transform composition artifacts
+        const inner     = document.createElement('div');
+        inner.className = 'piece-inner';
+
         const img = document.createElement('img');
         img.src       = PIECE_IMGS[this.color][this.type];
         img.draggable = false;
-        wrap.appendChild(img);
+        inner.appendChild(img);
 
         const coords = EYE_COORDS[this.type];
         if (coords) {
@@ -101,11 +114,13 @@ class Piece {
                 eye.style.left = coords[side].x + '%';
                 eye.style.top  = coords[side].y + '%';
                 eye.innerHTML  = EYE_SVG;
-                wrap.appendChild(eye);
+                inner.appendChild(eye);
             }
         }
 
-        this.el = wrap;
+        wrap.appendChild(inner);
+        this.el      = wrap;
+        this.innerEl = inner;
 
         // rebuild msgEl for the new render pass
         if (this._lastMsg) {
@@ -154,9 +169,9 @@ class Piece {
             wordIdx++;
             if (!this.el) return;
 
-            // scale only the piece-symbol, not the message bubble
-            this.el.style.transform = `scale(${wordEmphasis(words[wordIdx] || '')})`;
-            setTimeout(() => { if (this.el) this.el.style.transform = ''; }, 180);
+            // scale the inner wrapper only — eyes stay locked to the piece
+            this.innerEl.style.transform = `scale(${wordEmphasis(words[wordIdx] || '')})`;
+            setTimeout(() => { if (this.innerEl) this.innerEl.style.transform = ''; }, 180);
 
             const nextIdx = this._pageIndex + 1;
             if (nextIdx < this._pages.length && wordIdx >= this._pages[this._pageIndex].lastWordIdx) {
