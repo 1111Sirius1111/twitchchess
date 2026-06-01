@@ -36,15 +36,19 @@ class ChessBoard {
                     if (bp && pl) {
                         const piece = new Piece(bp.color, bp.type);
                         piece.setPlayer(pl);
+                        piece.setPosition(r, c);
                         this._playerToPiece.set(pl, piece);
                     }
                 }
             }
+
+            // start idle wandering for all pieces, staggered
+            this._playerToPiece.forEach(p => p.startIdle());
             this._render();
         });
 
         bus.on('game:moved', ({ game, assignments, to }) => {
-            // destroy pieces whose players are no longer on the board (captures)
+            // destroy captured pieces
             const living = new Set();
             for (let r = 0; r < 8; r++)
                 for (let c = 0; c < 8; c++)
@@ -70,6 +74,26 @@ class ChessBoard {
             this._assignments  = assignments;
             this._selected     = null;
             this._legalTargets = [];
+
+            // update every piece's board position
+            for (let r = 0; r < 8; r++)
+                for (let c = 0; c < 8; c++) {
+                    const pl = assignments[r][c];
+                    if (pl) this._playerToPiece.get(pl)?.setPosition(r, c);
+                }
+
+            // eye behaviour: check → look at king; otherwise → look at destination
+            if (game.status === 'check' || game.status === 'checkmate') {
+                const kingPos = this._findCheckKing();
+                if (kingPos) {
+                    this._playerToPiece.forEach((piece, pl) => {
+                        if (pl?.color === game.turn) piece.lookAtSquare(kingPos[0], kingPos[1]);
+                    });
+                }
+            } else {
+                this._playerToPiece.forEach(piece => piece.lookAtSquare(tr, tc));
+            }
+
             this._render();
         });
 
@@ -77,6 +101,27 @@ class ChessBoard {
             this._selected     = selected;
             this._legalTargets = legalTargets;
             this._render();
+
+            if (selected && this._assignments) {
+                const selPl = this._assignments[selected[0]][selected[1]];
+                this._playerToPiece.forEach((piece, pl) => {
+                    if (pl === selPl) piece.lookForward();
+                    else              piece.lookAtSquare(selected[0], selected[1]);
+                });
+            }
+        });
+
+        // other pieces watch the speaker
+        bus.on('tts:start', ({ pl }) => {
+            if (!this._assignments) return;
+            let speakerPos = null;
+            outer: for (let r = 0; r < 8; r++)
+                for (let c = 0; c < 8; c++)
+                    if (this._assignments[r][c] === pl) { speakerPos = [r, c]; break outer; }
+            if (!speakerPos) return;
+            this._playerToPiece.forEach((piece, p) => {
+                if (p !== pl) piece.lookAtSquare(speakerPos[0], speakerPos[1]);
+            });
         });
 
         bus.on('game:ended', () => {
@@ -84,6 +129,38 @@ class ChessBoard {
             this._playerToPiece.clear();
             this._game        = null;
             this._assignments = null;
+        });
+
+        let _cursorR = -1, _cursorC = -1;
+
+        boardEl.addEventListener('mousemove', (e) => {
+            if (!this._playerToPiece.size) return;
+            const rect  = boardEl.getBoundingClientRect();
+            const cellW = rect.width  / 8;
+            const cellH = rect.height / 8;
+            const relX  = e.clientX - rect.left;
+            const relY  = e.clientY - rect.top;
+            const c     = Math.floor(relX / cellW);
+            const r     = Math.floor(relY / cellH);
+            if (r < 0 || r > 7 || c < 0 || c > 7) return;
+
+            const squareChanged = (r !== _cursorR || c !== _cursorC);
+            _cursorR = r; _cursorC = c;
+
+            this._playerToPiece.forEach(piece => {
+                if (piece.isOnSquare(r, c)) {
+                    // pixel-level tracking within own cell — fires every mousemove
+                    piece.lookAtPixel(relX, relY, cellW, cellH);
+                } else if (squareChanged) {
+                    // square-level tracking for all other pieces — fires only on square change
+                    piece.lookAtSquare(r, c, 500);
+                }
+            });
+        });
+
+        boardEl.addEventListener('mouseleave', () => {
+            _cursorR = -1; _cursorC = -1;
+            this._playerToPiece.forEach(piece => piece.resetGaze());
         });
     }
 
@@ -124,7 +201,8 @@ class ChessBoard {
                 eye.className = 'piece-eye';
                 eye.style.left = coords[side].x + '%';
                 eye.style.top  = coords[side].y + '%';
-                eye.innerHTML  = EYE_SVG;
+                const { svg } = buildEyeSvg();
+                eye.appendChild(svg);
                 inner.appendChild(eye);
             }
         }
