@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eye Adjustment — Twitch Chess</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: Arial, sans-serif;
+            background: #18181b;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 32px 20px;
+        }
+
+        h1 { margin-bottom: 8px; font-size: 22px; letter-spacing: 0.03em; }
+        .subtitle { color: #888; font-size: 13px; margin-bottom: 32px; }
+
+        /* ── main layout ─────────────────────────────── */
+        .editor-wrap {
+            display: flex;
+            gap: 32px;
+            align-items: flex-start;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        /* ── piece selector (left column) ────────────── */
+        .piece-selector {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            min-width: 120px;
+        }
+        .piece-selector .piece-label {
+            font-size: 15px;
+            font-weight: bold;
+            text-align: center;
+            min-height: 22px;
+        }
+        .nav-btn {
+            background: #2a2a2e;
+            color: #fff;
+            border: 1px solid #3a3a42;
+            border-radius: 8px;
+            padding: 10px 22px;
+            font-size: 20px;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.15s;
+        }
+        .nav-btn:hover { background: #38383e; }
+
+        .piece-index {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .reset-eyes-btn {
+            background: #3a2a2e;
+            color: #f88;
+            border: 1px solid #5a3a3e;
+            border-radius: 6px;
+            padding: 7px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 8px;
+            transition: background 0.15s;
+        }
+        .reset-eyes-btn:hover { background: #4a2a2e; }
+
+        /* ── center column ────────────────────────────── */
+        .canvas-wrap {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* color toggle */
+        .color-toggle {
+            display: flex;
+            gap: 8px;
+        }
+        .color-btn {
+            padding: 5px 14px;
+            border-radius: 6px;
+            border: 1px solid #3a3a42;
+            background: #2a2a2e;
+            color: #aaa;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .color-btn.active-white { background: #e8e8e8; color: #111; border-color: #ccc; }
+        .color-btn.active-black { background: #333; color: #eee; border-color: #666; }
+
+        #piece-box {
+            position: relative;
+            width: 320px;
+            height: 320px;
+            background: #2a2a2e;
+            border: 2px solid #3a3a42;
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: crosshair;
+        }
+
+        /* wraps piece + eyes so a single transform scales both together */
+        #piece-scale-wrap {
+            position: absolute;
+            inset: 0;
+            transform-origin: center center;
+            transition: transform 0.12s ease-out;
+        }
+
+        #piece-img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            pointer-events: none;
+            user-select: none;
+            padding: 8px;
+        }
+
+        /* ── eye dots ─────────────────────────────────── */
+        .eye {
+            position: absolute;
+            width: 36px;
+            height: 36px;
+            transform: translate(-50%, -50%);
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+        .eye:active { cursor: grabbing; }
+        .eye svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+
+        .eye-hint {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+
+        /* ── current piece JSON editor ────────────────── */
+        .piece-json-box {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .piece-json-box label {
+            font-size: 12px;
+            color: #888;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        #piece-json-editor {
+            width: 100%;
+            background: #111113;
+            border: 1px solid #2e2e36;
+            border-radius: 8px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #8be;
+            resize: vertical;
+            min-height: 90px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        #piece-json-editor:focus { border-color: #9146ff; }
+        #piece-json-editor.error  { border-color: #d9534f; color: #f88; }
+        .piece-json-apply {
+            align-self: flex-end;
+            background: #2d4060;
+            color: #8be;
+            border: 1px solid #3a5070;
+            border-radius: 6px;
+            padding: 5px 14px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .piece-json-apply:hover { background: #375070; }
+        #piece-json-error {
+            font-size: 11px;
+            color: #f88;
+            min-height: 16px;
+        }
+
+        /* ── TTS preview ──────────────────────────────── */
+        .tts-box {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .tts-box label {
+            font-size: 12px;
+            color: #888;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .tts-row {
+            display: flex;
+            gap: 6px;
+        }
+        #tts-input {
+            flex: 1;
+            padding: 8px 10px;
+            font-size: 13px;
+            border: 1px solid #2e2e36;
+            border-radius: 6px;
+            background: #111113;
+            color: #fff;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        #tts-input:focus { border-color: #9146ff; }
+        .tts-speak-btn {
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: none;
+            background: #2d9248;
+            color: #fff;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+        .tts-speak-btn:hover  { background: #37a858; }
+        .tts-speak-btn.active { background: #d9534f; }
+        .tts-word-display {
+            font-size: 12px;
+            color: #666;
+            min-height: 18px;
+            text-align: center;
+        }
+        .tts-word-display span { color: #9146ff; font-weight: bold; }
+
+        /* ── JSON output (right column) ──────────────── */
+        .json-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-width: 240px;
+            max-width: 280px;
+        }
+        .json-panel h2 { font-size: 14px; color: #aaa; font-weight: normal; letter-spacing: 0.05em; text-transform: uppercase; }
+
+        #json-output {
+            background: #111113;
+            border: 1px solid #2e2e36;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #8be;
+            white-space: pre;
+            overflow: auto;
+            max-height: 480px;
+            min-height: 120px;
+        }
+
+        .copy-btn {
+            background: #2d4060;
+            color: #8be;
+            border: 1px solid #3a5070;
+            border-radius: 6px;
+            padding: 7px 14px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .copy-btn:hover { background: #375070; }
+        .copy-btn.copied { background: #2d6040; color: #8eb; border-color: #3a7050; }
+
+        .coverage-bar {
+            font-size: 11px;
+            color: #666;
+        }
+        .coverage-bar span { color: #9146ff; font-weight: bold; }
+
+        /* ── piece overview grid ──────────────────────── */
+        .overview-section h2 { font-size: 14px; color: #aaa; font-weight: normal; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
+
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+
+        .overview-cell {
+            position: relative;
+            background: #2a2a2e;
+            border: 2px solid #3a3a42;
+            border-radius: 8px;
+            cursor: pointer;
+            overflow: hidden;
+            aspect-ratio: 1;
+            transition: border-color 0.15s;
+        }
+        .overview-cell:hover { border-color: #666; }
+        .overview-cell.active { border-color: #9146ff; }
+
+        .overview-cell img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            pointer-events: none;
+            padding: 4px;
+        }
+
+        .overview-eye {
+            position: absolute;
+            width: 11.25%; /* matches 36px / 320px from the main editor */
+            aspect-ratio: 1;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        .overview-eye svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.9)); }
+
+        .overview-cell-label {
+            position: absolute;
+            bottom: 3px;
+            left: 0; right: 0;
+            text-align: center;
+            font-size: 9px;
+            color: #aaa;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Eye Adjustment</h1>
+<p class="subtitle">Eyes are shared between white and black versions of each piece type. Drag to position, or edit the JSON directly.</p>
+
+<div class="editor-wrap">
+
+    <!-- Left: piece selector -->
+    <div class="piece-selector">
+        <button class="nav-btn" id="btn-prev">&#9650;</button>
+        <div>
+            <div class="piece-label" id="piece-label">King</div>
+        </div>
+        <div class="piece-index" id="piece-index">1 / 6</div>
+        <button class="nav-btn" id="btn-next">&#9660;</button>
+        <button class="reset-eyes-btn" id="btn-reset">Reset Eyes</button>
+    </div>
+
+    <!-- Center: piece box + per-piece editor -->
+    <div class="canvas-wrap">
+        <div class="color-toggle">
+            <button class="color-btn active-white" id="btn-white">White</button>
+            <button class="color-btn" id="btn-black">Black</button>
+        </div>
+        <div id="piece-box">
+            <div id="piece-scale-wrap">
+                <img id="piece-img" src="" alt="piece" draggable="false">
+                <div class="eye" id="eye-left"  data-eye="left">
+                    <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="white" stroke="#333" stroke-width="1.5"/><circle cx="21" cy="20" r="7" fill="#222"/><circle cx="24" cy="16" r="3" fill="white"/></svg>
+                </div>
+                <div class="eye" id="eye-right" data-eye="right">
+                    <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="white" stroke="#333" stroke-width="1.5"/><circle cx="21" cy="20" r="7" fill="#222"/><circle cx="24" cy="16" r="3" fill="white"/></svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- per-piece JSON editor -->
+        <div class="piece-json-box">
+            <label>Current piece coordinates</label>
+            <textarea id="piece-json-editor" spellcheck="false"></textarea>
+            <div id="piece-json-error"></div>
+            <button class="piece-json-apply" id="btn-apply-piece-json">Apply</button>
+        </div>
+
+        <!-- TTS preview -->
+        <div class="tts-box">
+            <label>TTS Preview</label>
+            <div class="tts-row">
+                <input id="tts-input" type="text" placeholder="Type something for the piece to say…" value="Hello chat, I am the king!">
+                <button class="tts-speak-btn" id="btn-speak">Speak</button>
+            </div>
+            <div class="tts-word-display" id="tts-word-display"></div>
+        </div>
+
+        <div class="eye-hint">Drag eyes &nbsp;·&nbsp; click box to place &nbsp;·&nbsp; ←→ or ↑↓ to switch piece &nbsp;·&nbsp; R to reset</div>
+    </div>
+
+    <!-- Right: full JSON output -->
+    <div class="json-panel">
+        <h2>Full JSON</h2>
+        <pre id="json-output">{}</pre>
+        <button class="copy-btn" id="btn-copy">Copy JSON</button>
+        <div class="coverage-bar">Pieces set: <span id="coverage">0</span> / 6</div>
+
+        <div class="overview-section" style="margin-top: 16px;">
+            <h2>Overview</h2>
+            <div class="overview-grid" id="overview-grid"></div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+const PIECES = [
+    { type: 'k', label: 'King' },
+    { type: 'q', label: 'Queen' },
+    { type: 'r', label: 'Rook' },
+    { type: 'b', label: 'Bishop' },
+    { type: 'n', label: 'Knight' },
+    { type: 'p', label: 'Pawn' },
+];
+
+const IMGS = {
+    white: {
+        k: 'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
+        q: 'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
+        r: 'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
+        b: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
+        n: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
+        p: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
+    },
+    black: {
+        k: 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
+        q: 'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
+        r: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg',
+        b: 'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
+        n: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
+        p: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg',
+    },
+};
+
+const DEFAULT_EYES = {
+    left:  { x: 38, y: 35 },
+    right: { x: 62, y: 35 },
+};
+
+// data keyed by type only: { k: { left: {x,y}, right: {x,y} }, ... }
+const data = {};
+
+let currentIdx = 0;
+let previewColor = 'white';
+
+// ── DOM refs ──────────────────────────────────────────────────────
+const pieceBox        = document.getElementById('piece-box');
+const pieceImg        = document.getElementById('piece-img');
+const eyeLeft         = document.getElementById('eye-left');
+const eyeRight        = document.getElementById('eye-right');
+const pieceLabel      = document.getElementById('piece-label');
+const pieceIndex      = document.getElementById('piece-index');
+const jsonOutput      = document.getElementById('json-output');
+const coverage        = document.getElementById('coverage');
+const btnCopy         = document.getElementById('btn-copy');
+const pieceJsonEditor = document.getElementById('piece-json-editor');
+const pieceJsonError  = document.getElementById('piece-json-error');
+
+// ── helpers ───────────────────────────────────────────────────────
+function getEyes(type) {
+    return data[type]
+        ? { left: { ...data[type].left }, right: { ...data[type].right } }
+        : { left: { ...DEFAULT_EYES.left }, right: { ...DEFAULT_EYES.right } };
+}
+
+function placeEyes(pos) {
+    eyeLeft.style.left  = pos.left.x  + '%';
+    eyeLeft.style.top   = pos.left.y  + '%';
+    eyeRight.style.left = pos.right.x + '%';
+    eyeRight.style.top  = pos.right.y + '%';
+}
+
+function readEyesFromDOM() {
+    return {
+        left:  { x: Math.round(parseFloat(eyeLeft.style.left)  * 10) / 10,
+                 y: Math.round(parseFloat(eyeLeft.style.top)   * 10) / 10 },
+        right: { x: Math.round(parseFloat(eyeRight.style.left) * 10) / 10,
+                 y: Math.round(parseFloat(eyeRight.style.top)  * 10) / 10 },
+    };
+}
+
+function saveCurrentEyes() {
+    const type = PIECES[currentIdx].type;
+    data[type] = readEyesFromDOM();
+    updateJSON();
+    updatePieceJsonEditor();
+    updateOverview();
+}
+
+function updateJSON() {
+    const out = {};
+    let count = 0;
+    for (const { type } of PIECES) {
+        if (data[type]) { out[type] = data[type]; count++; }
+    }
+    jsonOutput.textContent = JSON.stringify(out, null, 2);
+    coverage.textContent = count;
+}
+
+function updatePieceJsonEditor() {
+    const type = PIECES[currentIdx].type;
+    const eyes = getEyes(type);
+    pieceJsonEditor.value = JSON.stringify(eyes, null, 2);
+    pieceJsonEditor.classList.remove('error');
+    pieceJsonError.textContent = '';
+}
+
+function loadPiece(idx) {
+    const { type, label } = PIECES[idx];
+    pieceImg.src = IMGS[previewColor][type];
+    pieceLabel.textContent = label;
+    pieceIndex.textContent = `${idx + 1} / ${PIECES.length}`;
+    placeEyes(getEyes(type));
+    updatePieceJsonEditor();
+    updateOverview();
+}
+
+// ── navigation ────────────────────────────────────────────────────
+document.getElementById('btn-prev').addEventListener('click', () => {
+    saveCurrentEyes();
+    currentIdx = (currentIdx - 1 + PIECES.length) % PIECES.length;
+    loadPiece(currentIdx);
+});
+
+document.getElementById('btn-next').addEventListener('click', () => {
+    saveCurrentEyes();
+    currentIdx = (currentIdx + 1) % PIECES.length;
+    loadPiece(currentIdx);
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+    placeEyes({ left: { ...DEFAULT_EYES.left }, right: { ...DEFAULT_EYES.right } });
+    saveCurrentEyes();
+});
+
+// ── color preview toggle ──────────────────────────────────────────
+document.getElementById('btn-white').addEventListener('click', () => {
+    previewColor = 'white';
+    document.getElementById('btn-white').className = 'color-btn active-white';
+    document.getElementById('btn-black').className = 'color-btn';
+    pieceImg.src = IMGS.white[PIECES[currentIdx].type];
+    updateOverview();
+});
+
+document.getElementById('btn-black').addEventListener('click', () => {
+    previewColor = 'black';
+    document.getElementById('btn-white').className = 'color-btn';
+    document.getElementById('btn-black').className = 'color-btn active-black';
+    pieceImg.src = IMGS.black[PIECES[currentIdx].type];
+    updateOverview();
+});
+
+// ── per-piece JSON editor ─────────────────────────────────────────
+function applyPieceJson() {
+    try {
+        const parsed = JSON.parse(pieceJsonEditor.value);
+        // validate shape
+        if (!parsed.left || !parsed.right ||
+            typeof parsed.left.x  !== 'number' || typeof parsed.left.y  !== 'number' ||
+            typeof parsed.right.x !== 'number' || typeof parsed.right.y !== 'number') {
+            throw new Error('Expected { left: {x,y}, right: {x,y} }');
+        }
+        const clamp = v => Math.max(0, Math.min(100, v));
+        const pos = {
+            left:  { x: clamp(parsed.left.x),  y: clamp(parsed.left.y)  },
+            right: { x: clamp(parsed.right.x), y: clamp(parsed.right.y) },
+        };
+        placeEyes(pos);
+        saveCurrentEyes();
+        pieceJsonEditor.classList.remove('error');
+        pieceJsonError.textContent = '';
+    } catch (e) {
+        pieceJsonEditor.classList.add('error');
+        pieceJsonError.textContent = e.message;
+    }
+}
+
+document.getElementById('btn-apply-piece-json').addEventListener('click', applyPieceJson);
+
+pieceJsonEditor.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        applyPieceJson();
+    }
+});
+
+// live-validate while typing (show error but don't apply yet)
+pieceJsonEditor.addEventListener('input', () => {
+    try {
+        JSON.parse(pieceJsonEditor.value);
+        pieceJsonEditor.classList.remove('error');
+        pieceJsonError.textContent = '';
+    } catch {
+        pieceJsonEditor.classList.add('error');
+        pieceJsonError.textContent = 'Invalid JSON';
+    }
+});
+
+// ── dragging ──────────────────────────────────────────────────────
+function makeDraggable(el) {
+    let dragging = false;
+    let startMouse = { x: 0, y: 0 };
+    let startPos   = { x: 0, y: 0 };
+
+    function onDown(e) {
+        e.preventDefault();
+        dragging = true;
+        const client = e.touches ? e.touches[0] : e;
+        startMouse.x = client.clientX;
+        startMouse.y = client.clientY;
+        startPos.x = parseFloat(el.style.left)  || DEFAULT_EYES[el.dataset.eye].x;
+        startPos.y = parseFloat(el.style.top)   || DEFAULT_EYES[el.dataset.eye].y;
+        el.style.cursor = 'grabbing';
+    }
+
+    function onMove(e) {
+        if (!dragging) return;
+        e.preventDefault();
+        const client = e.touches ? e.touches[0] : e;
+        const box = pieceBox.getBoundingClientRect();
+        const dx = ((client.clientX - startMouse.x) / box.width)  * 100;
+        const dy = ((client.clientY - startMouse.y) / box.height) * 100;
+        const nx = Math.max(0, Math.min(100, startPos.x + dx));
+        const ny = Math.max(0, Math.min(100, startPos.y + dy));
+        el.style.left = nx + '%';
+        el.style.top  = ny + '%';
+    }
+
+    function onUp() {
+        if (!dragging) return;
+        dragging = false;
+        el.style.cursor = 'grab';
+        saveCurrentEyes();
+    }
+
+    el.addEventListener('mousedown',  onDown,  { passive: false });
+    el.addEventListener('touchstart', onDown,  { passive: false });
+    window.addEventListener('mousemove', onMove, { passive: false });
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('mouseup',  onUp);
+    window.addEventListener('touchend', onUp);
+}
+
+makeDraggable(eyeLeft);
+makeDraggable(eyeRight);
+
+// ── click-to-place ────────────────────────────────────────────────
+let lastClickedEye = 'left';
+eyeLeft.addEventListener('mousedown',  () => lastClickedEye = 'left');
+eyeRight.addEventListener('mousedown', () => lastClickedEye = 'right');
+
+pieceBox.addEventListener('click', (e) => {
+    if (e.target.closest('.eye')) return;
+    const box = pieceBox.getBoundingClientRect();
+    const x = ((e.clientX - box.left) / box.width)  * 100;
+    const y = ((e.clientY - box.top)  / box.height) * 100;
+    const el = lastClickedEye === 'left' ? eyeLeft : eyeRight;
+    el.style.left = x + '%';
+    el.style.top  = y + '%';
+    lastClickedEye = lastClickedEye === 'left' ? 'right' : 'left';
+    saveCurrentEyes();
+});
+
+// ── copy button ───────────────────────────────────────────────────
+btnCopy.addEventListener('click', () => {
+    navigator.clipboard.writeText(jsonOutput.textContent).then(() => {
+        btnCopy.textContent = 'Copied!';
+        btnCopy.classList.add('copied');
+        setTimeout(() => { btnCopy.textContent = 'Copy JSON'; btnCopy.classList.remove('copied'); }, 1500);
+    });
+});
+
+// ── keyboard shortcuts ────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        saveCurrentEyes();
+        currentIdx = (currentIdx - 1 + PIECES.length) % PIECES.length;
+        loadPiece(currentIdx);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        saveCurrentEyes();
+        currentIdx = (currentIdx + 1) % PIECES.length;
+        loadPiece(currentIdx);
+    } else if (e.key === 'r' || e.key === 'R') {
+        placeEyes({ left: { ...DEFAULT_EYES.left }, right: { ...DEFAULT_EYES.right } });
+        saveCurrentEyes();
+    }
+});
+
+// ── TTS preview ───────────────────────────────────────────────────
+const scaleWrap    = document.getElementById('piece-scale-wrap');
+const ttsInput     = document.getElementById('tts-input');
+const btnSpeak     = document.getElementById('btn-speak');
+const ttsWordDisp  = document.getElementById('tts-word-display');
+
+function wordEmphasis(word) {
+    const clean = word.replace(/[^a-zA-Z0-9]/g, '');
+    if (!clean) return 1.11;
+    if (clean === clean.toUpperCase() && clean.length > 1) return 1.5;
+    if (/[!?]{2,}/.test(word)) return 1.33;
+    if (clean.length >= 9) return 1.28;
+    if (clean.length >= 6) return 1.22;
+    if (clean.length <= 2) return 1.11;
+    return 1.17;
+}
+
+let currentUtterance = null;
+
+function stopSpeech() {
+    window.speechSynthesis.cancel();
+    currentUtterance = null;
+    scaleWrap.style.transform = '';
+    btnSpeak.textContent = 'Speak';
+    btnSpeak.classList.remove('active');
+    ttsWordDisp.innerHTML = '';
+}
+
+function startSpeech(text) {
+    stopSpeech();
+    const words = text.trim().split(/\s+/);
+    const utter = new SpeechSynthesisUtterance(text);
+    currentUtterance = utter;
+
+    btnSpeak.textContent = 'Stop';
+    btnSpeak.classList.add('active');
+
+    let wordIdx = -1;
+
+    utter.addEventListener('boundary', (e) => {
+        if (e.name !== 'word') return;
+        wordIdx++;
+        const word = words[wordIdx] || '';
+        const scale = wordEmphasis(word);
+
+        ttsWordDisp.innerHTML = `<span>${word}</span>`;
+
+        scaleWrap.style.transition = 'none';
+        scaleWrap.style.transform  = `scale(${scale})`;
+        setTimeout(() => {
+            scaleWrap.style.transition = 'transform 0.18s ease-out';
+            scaleWrap.style.transform  = '';
+        }, 150);
+    });
+
+    utter.addEventListener('end', () => {
+        currentUtterance = null;
+        scaleWrap.style.transform = '';
+        btnSpeak.textContent = 'Speak';
+        btnSpeak.classList.remove('active');
+        setTimeout(() => { ttsWordDisp.innerHTML = ''; }, 600);
+    });
+
+    window.speechSynthesis.speak(utter);
+}
+
+btnSpeak.addEventListener('click', () => {
+    if (currentUtterance) { stopSpeech(); return; }
+    const text = ttsInput.value.trim();
+    if (text) startSpeech(text);
+});
+
+ttsInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        if (currentUtterance) stopSpeech();
+        else if (ttsInput.value.trim()) startSpeech(ttsInput.value.trim());
+    }
+});
+
+// ── overview grid ─────────────────────────────────────────────────
+const overviewGrid = document.getElementById('overview-grid');
+
+function eyeSvg() {
+    return `<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="white" stroke="#333" stroke-width="1.5"/><circle cx="21" cy="20" r="7" fill="#222"/><circle cx="24" cy="16" r="3" fill="white"/></svg>`;
+}
+
+function buildOverview() {
+    overviewGrid.innerHTML = '';
+    PIECES.forEach(({ type, label }, idx) => {
+        const cell = document.createElement('div');
+        cell.className = 'overview-cell' + (idx === currentIdx ? ' active' : '');
+        cell.dataset.idx = idx;
+
+        const img = document.createElement('img');
+        img.src = IMGS[previewColor][type];
+        img.draggable = false;
+        cell.appendChild(img);
+
+        const eyes = getEyes(type);
+        for (const side of ['left', 'right']) {
+            const dot = document.createElement('div');
+            dot.className = 'overview-eye';
+            dot.style.left = eyes[side].x + '%';
+            dot.style.top  = eyes[side].y + '%';
+            dot.innerHTML  = eyeSvg();
+            cell.appendChild(dot);
+        }
+
+        const lbl = document.createElement('div');
+        lbl.className = 'overview-cell-label';
+        lbl.textContent = label;
+        cell.appendChild(lbl);
+
+        cell.addEventListener('click', () => {
+            saveCurrentEyes();
+            currentIdx = idx;
+            loadPiece(currentIdx);
+        });
+
+        overviewGrid.appendChild(cell);
+    });
+}
+
+function updateOverview() {
+    const cells = overviewGrid.querySelectorAll('.overview-cell');
+    cells.forEach((cell, idx) => {
+        cell.classList.toggle('active', idx === currentIdx);
+        const type = PIECES[idx].type;
+
+        // update piece image (in case color changed)
+        cell.querySelector('img').src = IMGS[previewColor][type];
+
+        // update eye positions
+        const eyes = getEyes(type);
+        const dots = cell.querySelectorAll('.overview-eye');
+        dots[0].style.left = eyes.left.x  + '%';
+        dots[0].style.top  = eyes.left.y  + '%';
+        dots[1].style.left = eyes.right.x + '%';
+        dots[1].style.top  = eyes.right.y + '%';
+    });
+}
+
+// ── init ──────────────────────────────────────────────────────────
+loadPiece(0);
+updateJSON();
+buildOverview();
+</script>
+</body>
+</html>

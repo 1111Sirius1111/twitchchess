@@ -1,84 +1,17 @@
-const PIECE_IMGS = {
-    white: {
-        k: 'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
-        q: 'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
-        r: 'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
-        b: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
-        n: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
-        p: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
-    },
-    black: {
-        k: 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
-        q: 'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
-        r: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg',
-        b: 'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
-        n: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
-        p: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg',
-    },
-};
-
 const FILES = 'abcdefgh';
-
-function pieceImg(color, type, size = null) {
-    const img = document.createElement('img');
-    img.src = PIECE_IMGS[color][type];
-    if (size !== null) img.style.width = img.style.height = size + 'px';
-    img.draggable = false;
-    return img;
-}
-
-function wordEmphasis(word) {
-    const clean = word.replace(/[^a-zA-Z0-9]/g, '');
-    if (!clean) return 1.11;
-    if (clean === clean.toUpperCase() && clean.length > 1) return 1.5;
-    if (/[!?]{2,}/.test(word)) return 1.33;
-    if (clean.length >= 9) return 1.28;
-    if (clean.length >= 6) return 1.22;
-    if (clean.length <= 2) return 1.11;
-    return 1.17;
-}
-
-// Returns pages: [{text, lastWordIdx}] where lastWordIdx is the index (into the
-// words array) of the last word on this page. The boundary handler advances the
-// page when that word index is reached. Uses word counting, not charIndex, so it
-// works in Chrome where charIndex is unreliable.
-function paginateForElement(text, el) {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const cs = getComputedStyle(el);
-    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    const maxW = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-
-    const words = text.split(/\s+/);
-    const pages = [];
-    let pageWords = [];
-    let pageStartIdx = 0;
-
-    for (let i = 0; i < words.length; i++) {
-        const candidate = pageWords.length ? pageWords.join(' ') + ' ' + words[i] : words[i];
-        if (ctx.measureText(candidate).width > maxW && pageWords.length > 0) {
-            pages.push({ text: pageWords.join(' '), lastWordIdx: pageStartIdx + pageWords.length - 1 });
-            pageStartIdx = i;
-            pageWords = [words[i]];
-        } else {
-            pageWords.push(words[i]);
-        }
-    }
-    if (pageWords.length) pages.push({ text: pageWords.join(' '), lastWordIdx: Infinity });
-    return pages.length ? pages : [{ text, lastWordIdx: Infinity }];
-}
 
 function cap(s) { return s[0].toUpperCase() + s.slice(1); }
 
 class ChessBoard {
     constructor() {
-        this._game        = null;
-        this._assignments = null;
-        this._selected    = null;
-        this._legalTargets = [];
-        this._boardEl     = null;
-        this._statusEl    = null;
-        this._promoModalEl = null;
+        this._game          = null;
+        this._assignments   = null;
+        this._selected      = null;
+        this._legalTargets  = [];
+        this._boardEl       = null;
+        this._statusEl      = null;
+        this._promoModalEl  = null;
+        this._playerToPiece = new Map();
     }
 
     mount(boardEl, statusEl, promoModalEl) {
@@ -87,18 +20,80 @@ class ChessBoard {
         this._promoModalEl = promoModalEl;
 
         bus.on('game:started', ({ game, assignments }) => {
-            this._game        = game;
-            this._assignments = assignments;
-            this._selected    = null;
+            this._playerToPiece.forEach(p => p.destroy());
+            this._playerToPiece.clear();
+
+            this._game         = game;
+            this._assignments  = assignments;
+            this._selected     = null;
             this._legalTargets = [];
+
+            const bd = game.getBoard();
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const bp = bd[r][c];
+                    const pl = assignments[r][c];
+                    if (bp && pl) {
+                        const piece = new Piece(bp.color, bp.type);
+                        piece.setPlayer(pl);
+                        piece.setPosition(r, c);
+                        this._playerToPiece.set(pl, piece);
+                    }
+                }
+            }
+
+            // start idle wandering for all pieces, staggered
+            this._playerToPiece.forEach(p => p.startIdle());
             this._render();
         });
 
-        bus.on('game:moved', ({ game, assignments }) => {
-            this._game        = game;
-            this._assignments = assignments;
-            this._selected    = null;
+        bus.on('game:moved', ({ game, assignments, to }) => {
+            // destroy captured pieces
+            const living = new Set();
+            for (let r = 0; r < 8; r++)
+                for (let c = 0; c < 8; c++)
+                    if (assignments[r][c]) living.add(assignments[r][c]);
+
+            for (const [pl, piece] of this._playerToPiece) {
+                if (!living.has(pl)) {
+                    piece.destroy();
+                    this._playerToPiece.delete(pl);
+                }
+            }
+
+            // sync type at destination in case of promotion
+            const [tr, tc] = to;
+            const destPl   = assignments[tr][tc];
+            if (destPl) {
+                const piece   = this._playerToPiece.get(destPl);
+                const newType = game.getBoard()[tr][tc]?.type;
+                if (piece && newType) piece.setType(newType);
+            }
+
+            this._game         = game;
+            this._assignments  = assignments;
+            this._selected     = null;
             this._legalTargets = [];
+
+            // update every piece's board position
+            for (let r = 0; r < 8; r++)
+                for (let c = 0; c < 8; c++) {
+                    const pl = assignments[r][c];
+                    if (pl) this._playerToPiece.get(pl)?.setPosition(r, c);
+                }
+
+            // eye behaviour: check → look at king; otherwise → look at destination
+            if (game.status === 'check' || game.status === 'checkmate') {
+                const kingPos = this._findCheckKing();
+                if (kingPos) {
+                    this._playerToPiece.forEach((piece, pl) => {
+                        if (pl?.color === game.turn) piece.lookAtSquare(kingPos[0], kingPos[1]);
+                    });
+                }
+            } else {
+                this._playerToPiece.forEach(piece => piece.lookAtSquare(tr, tc));
+            }
+
             this._render();
         });
 
@@ -106,15 +101,66 @@ class ChessBoard {
             this._selected     = selected;
             this._legalTargets = legalTargets;
             this._render();
+
+            if (selected && this._assignments) {
+                const selPl = this._assignments[selected[0]][selected[1]];
+                this._playerToPiece.forEach((piece, pl) => {
+                    if (pl === selPl) piece.lookForward();
+                    else              piece.lookAtSquare(selected[0], selected[1]);
+                });
+            }
+        });
+
+        // other pieces watch the speaker
+        bus.on('tts:start', ({ pl }) => {
+            if (!this._assignments) return;
+            let speakerPos = null;
+            outer: for (let r = 0; r < 8; r++)
+                for (let c = 0; c < 8; c++)
+                    if (this._assignments[r][c] === pl) { speakerPos = [r, c]; break outer; }
+            if (!speakerPos) return;
+            this._playerToPiece.forEach((piece, p) => {
+                if (p !== pl) piece.lookAtSquare(speakerPos[0], speakerPos[1]);
+            });
         });
 
         bus.on('game:ended', () => {
+            this._playerToPiece.forEach(p => p.destroy());
+            this._playerToPiece.clear();
             this._game        = null;
             this._assignments = null;
         });
 
-        bus.on('tts:start', ({ pl, text, utterance }) => {
-            this._showSpeaking(pl, text, utterance);
+        let _cursorR = -1, _cursorC = -1;
+
+        boardEl.addEventListener('mousemove', (e) => {
+            if (!this._playerToPiece.size) return;
+            const rect  = boardEl.getBoundingClientRect();
+            const cellW = rect.width  / 8;
+            const cellH = rect.height / 8;
+            const relX  = e.clientX - rect.left;
+            const relY  = e.clientY - rect.top;
+            const c     = Math.floor(relX / cellW);
+            const r     = Math.floor(relY / cellH);
+            if (r < 0 || r > 7 || c < 0 || c > 7) return;
+
+            const squareChanged = (r !== _cursorR || c !== _cursorC);
+            _cursorR = r; _cursorC = c;
+
+            this._playerToPiece.forEach(piece => {
+                if (piece.isOnSquare(r, c)) {
+                    // pixel-level tracking within own cell — fires every mousemove
+                    piece.lookAtPixel(relX, relY, cellW, cellH);
+                } else if (squareChanged) {
+                    // square-level tracking for all other pieces — fires only on square change
+                    piece.lookAtSquare(r, c, 500);
+                }
+            });
+        });
+
+        boardEl.addEventListener('mouseleave', () => {
+            _cursorR = -1; _cursorC = -1;
+            this._playerToPiece.forEach(piece => piece.resetGaze());
         });
     }
 
@@ -123,21 +169,13 @@ class ChessBoard {
         const choices = modal.querySelector('#promo-choices');
         choices.innerHTML = '';
         for (const type of ['q', 'r', 'b', 'n']) {
-            const btn = document.createElement('button');
+            const btn   = document.createElement('button');
             btn.appendChild(pieceImg(color, type, 56));
-            btn.title = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' }[type];
+            btn.title   = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' }[type];
             btn.onclick = () => { modal.classList.remove('show'); callback(type); };
             choices.appendChild(btn);
         }
         modal.classList.add('show');
-    }
-
-    _findPlayerCell(pl) {
-        if (!this._assignments) return null;
-        for (let r = 0; r < 8; r++)
-            for (let c = 0; c < 8; c++)
-                if (this._assignments[r][c] === pl) return [r, c];
-        return null;
     }
 
     _findCheckKing() {
@@ -149,63 +187,40 @@ class ChessBoard {
         return null;
     }
 
-    _showSpeaking(pl, text, utterance) {
-        clearTimeout(pl.msgTimer);
-        pl.lastMsg    = text;
-        pl.displayMsg = text;
-        pl.pageIndex  = 0;
-        this._render();
+    _renderStateless(color, type) {
+        const wrap     = document.createElement('div');
+        wrap.className = 'piece-symbol';
+        const inner     = document.createElement('div');
+        inner.className = 'piece-inner';
+        inner.appendChild(pieceImg(color, type));
 
-        const pos   = this._findPlayerCell(pl);
-        const msgEl = pos ? document.getElementById(`msg-${pos[0]}-${pos[1]}`) : null;
-        pl.pages      = msgEl ? paginateForElement(text, msgEl) : [{ text, lastWordIdx: Infinity }];
-        pl.displayMsg = pl.pages[0].text;
-        if (msgEl) msgEl.textContent = pl.displayMsg;
-
-        const words   = text.split(/\s+/);
-        let   wordIdx = -1;
-
-        utterance.addEventListener('boundary', (e) => {
-            if (e.name !== 'word') return;
-            wordIdx++;
-            const pos2 = this._findPlayerCell(pl);
-            if (!pos2) return;
-            const [r, c] = pos2;
-
-            const sym = document.getElementById(`sym-${r}-${c}`);
-            if (sym) {
-                sym.style.transform = `scale(${wordEmphasis(words[wordIdx] || '')})`;
-                setTimeout(() => { sym.style.transform = ''; }, 180);
+        const coords = EYE_COORDS[type];
+        if (coords) {
+            for (const side of ['left', 'right']) {
+                const eye     = document.createElement('div');
+                eye.className = 'piece-eye';
+                eye.style.left = coords[side].x + '%';
+                eye.style.top  = coords[side].y + '%';
+                const { svg } = buildEyeSvg();
+                eye.appendChild(svg);
+                inner.appendChild(eye);
             }
-
-            const pages   = pl.pages;
-            const nextIdx = pl.pageIndex + 1;
-            if (nextIdx < pages.length && wordIdx >= pages[pl.pageIndex].lastWordIdx) {
-                pl.pageIndex  = nextIdx;
-                pl.displayMsg = pages[nextIdx].text;
-                const msgEl2  = document.getElementById(`msg-${r}-${c}`);
-                if (msgEl2) msgEl2.textContent = pl.displayMsg;
-            }
-        });
-
-        utterance.addEventListener('end', () => {
-            pl.msgTimer = setTimeout(() => {
-                if (pl.lastMsg === text) { pl.lastMsg = null; pl.displayMsg = null; this._render(); }
-            }, 1000);
-        });
+        }
+        wrap.appendChild(inner);
+        return wrap;
     }
 
     _render() {
         if (!this._game) return;
-        const boardEl  = this._boardEl;
+        const boardEl = this._boardEl;
         boardEl.innerHTML = '';
-        const bd       = this._game.getBoard();
-        const lm       = this._game.lastMove;
-        const kingPos  = this._findCheckKing();
+        const bd      = this._game.getBoard();
+        const lm      = this._game.lastMove;
+        const kingPos = this._findCheckKing();
 
         for (let r = 0; r < 8; r++) {
             for (let c = 0; c < 8; c++) {
-                const cell = document.createElement('div');
+                const cell     = document.createElement('div');
                 cell.className = 'cell ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
 
                 const isSel   = this._selected && this._selected[0] === r && this._selected[1] === c;
@@ -219,48 +234,42 @@ class ChessBoard {
 
                 const p = bd[r][c];
                 if (p) {
-                    const pl = this._assignments[r][c];
+                    const pl    = this._assignments[r][c];
+                    const piece = pl ? this._playerToPiece.get(pl) : null;
 
                     if (pl) {
-                        const name = document.createElement('div');
+                        const name     = document.createElement('div');
                         name.className = 'piece-name';
                         name.textContent = pl.username;
                         cell.appendChild(name);
                     }
 
-                    const sym = document.createElement('div');
-                    sym.className = 'piece-symbol';
-                    sym.id = `sym-${r}-${c}`;
-                    sym.appendChild(pieceImg(p.color, p.type));
-                    cell.appendChild(sym);
-
-                    if (pl?.lastMsg) {
-                        const msg = document.createElement('div');
-                        msg.className = 'piece-msg';
-                        msg.id = `msg-${r}-${c}`;
-                        msg.textContent = pl.displayMsg ?? pl.lastMsg;
-                        cell.appendChild(msg);
+                    if (piece) {
+                        cell.appendChild(piece.redraw());
+                        if (piece.msgEl) cell.appendChild(piece.msgEl);
+                    } else {
+                        cell.appendChild(this._renderStateless(p.color, p.type));
                     }
 
                     if (isLegal) {
-                        const ring = document.createElement('div');
+                        const ring     = document.createElement('div');
                         ring.className = 'capture-ring';
                         cell.appendChild(ring);
                     }
                 } else if (isLegal) {
-                    const dot = document.createElement('div');
+                    const dot     = document.createElement('div');
                     dot.className = 'move-dot';
                     cell.appendChild(dot);
                 }
 
                 if (c === 0) {
-                    const rank = document.createElement('span');
+                    const rank     = document.createElement('span');
                     rank.className = 'coords rank';
                     rank.textContent = 8 - r;
                     cell.appendChild(rank);
                 }
                 if (r === 7) {
-                    const file = document.createElement('span');
+                    const file     = document.createElement('span');
                     file.className = 'coords file';
                     file.textContent = FILES[c];
                     cell.appendChild(file);
@@ -282,5 +291,3 @@ class ChessBoard {
 }
 
 window.ChessBoard = ChessBoard;
-window.pieceImg   = pieceImg;
-window.PIECE_IMGS = PIECE_IMGS;
