@@ -54,6 +54,8 @@ PLAY = [
     ("31",   "!chess play",          0.1),
 ]
 
+PLAY.extend([(f"{i}", "!chess play", 0.1) for i in range(32,300)])
+
 DE = [
     ("1",   "ich sage einen deutschen satz",          0.1),
     ("2",   "ich sage einen deutschen satz",          0.1),
